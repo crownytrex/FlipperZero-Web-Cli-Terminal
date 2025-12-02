@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Flipper Zero Web Serial Terminal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #0b0f14;
+      color: #c9d1d9;
+      font-family: monospace;
+    }
+    #app {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      height: 100%;
+    }
+    header, footer {
+      padding: 10px;
+      background: #11161d;
+      border-bottom: 1px solid #1f2430;
+    }
+    footer { border-top: 1px solid #1f2430; border-bottom: none; }
+    #term {
+      padding: 12px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      line-height: 1.4;
+      font-size: 14px;
+    }
+    #inputBar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      padding: 10px;
+      background: #0f131a;
+      border-top: 1px solid #1f2430;
+    }
+    button, select, input[type="text"] {
+      background: #1b2230;
+      color: #c9d1d9;
+      border: 1px solid #2a3240;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+    button:hover { background: #222a3a; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" disabled>Disconnect</button>
+      <button id="fullscreenBtn">Fullscreen</button>
+      <select id="baudSelect">
+        <option value="9600">9600</option>
+        <option value="115200" selected>115200</option>
+      </select>
+    </header>
+
+    <main id="term"></main>
+
+    <div id="inputBar">
+      <input id="textInput" type="text" placeholder="Type and press Enter..." />
+      <button id="sendBtn">Send</button>
+    </div>
+
+    <footer>
+      <small>Use Chrome/Edge. Connect → select Flipper Zero → baud 115200 → type <code>help</code>.</small>
+    </footer>
+  </div>
+
+  <script>
+    const termEl = document.getElementById('term');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const baudSelect = document.getElementById('baudSelect');
+    const textInput = document.getElementById('textInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    let port, reader, writer;
+
+    function log(msg) {
+      termEl.textContent += msg;
+      termEl.scrollTop = termEl.scrollHeight;
+    }
+
+    async function connect() {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: parseInt(baudSelect.value, 10) });
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+
+        reader = port.readable.getReader();
+        const decoder = new TextDecoder();
+        (async () => {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value) log(decoder.decode(value));
+          }
+        })();
+
+        if (port.writable) writer = port.writable.getWriter();
+      } catch (err) {
+        log("Connection error: " + err.message + "\n");
+      }
+    }
+
+    async function disconnect() {
+      try { if (reader) reader.releaseLock(); } catch {}
+      try { if (writer) { await writer.close(); writer.releaseLock(); } } catch {}
+      try { if (port) await port.close(); } catch {}
+      connectBtn.disabled = false;
+      disconnectBtn.disabled = true;
+      port = null;
+    }
+
+    async function sendLine() {
+      if (!writer) {
+        log("Not connected\n");
+        return;
+      }
+      let payload = textInput.value + "\r\n"; // CRLF required for Flipper CLI
+      const data = new TextEncoder().encode(payload);
+      await writer.write(data);
+      textInput.value = "";
+    }
+
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+    sendBtn.addEventListener('click', sendLine);
+    textInput.addEventListener('keydown', e => { if (e.key === "Enter") sendLine(); });
+    fullscreenBtn.addEventListener('click', () => {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    });
+  </script>
+</body>
+</html>
